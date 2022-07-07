@@ -2,10 +2,10 @@
 
 //! Implements the [Matrix digital rain](https://en.wikipedia.org/wiki/Matrix_digital_rain) effect in the terminal
 //! This code has also been published on [Rosetta Code](https://rosettacode.org/wiki/Matrix_digital_rain#Rust)
-//! It was part of a live coding session in the C4 (Chaos Computer Club Cologne) to teach some basic Rust coding
-//! skills to beginners.
+//! It was part of a [live coding session](https://www.meetup.com/rustcologne/events/286890733/) of the
+//! [Rust User Group Cologne](https://rust.cologne) to teach some basic Rust coding skills to beginners.
 
-use rand::prelude::ThreadRng;
+use rand::prelude::{ThreadRng, SliceRandom};
 use rand::{thread_rng, Rng};
 use termion::{color::Rgb};
 use termion::input::TermRead;
@@ -13,6 +13,26 @@ use termion::raw::IntoRawMode;
 use std::sync::mpsc::{channel, TryRecvError};
 use std::thread;
 use std::{io::{Write, stdout, stdin}, iter::repeat, time::Duration};
+
+/// Character pool to pick from
+/// If your terminal is struggling with that choice, replace them by ordinary latin characters.
+/// There's currently no nicer way to initialize constant array in Rust
+const CHARS: [char; 322] = [
+    'M', 'Ї', 'Љ', 'Њ', 'Ћ', 'Ќ', 'Ѝ', 'Ў', 'Џ', 'Б', 'Г', 'Д', 'Ж', 'И', 'Й', 'Л', 'П', 'Ф', 'Ц', 'Ч', 'Ш', 'Щ', 'Ъ',
+    'Ы', 'Э', 'Ю', 'Я', 'в', 'д', 'ж', 'з', 'и', 'й', 'к', 'л', 'м', 'н', 'п', 'т', 'ф', 'ц', 'ч', 'ш', 'щ', 'ъ', 'ы',
+    'ь', 'э', 'ю', 'я', 'ѐ', 'ё', 'ђ', 'ѓ', 'є', 'ї', 'љ', 'њ', 'ћ', 'ќ', 'ѝ', 'ў', 'џ', 'Ѣ', 'ѣ', 'ѧ', 'Ѯ', 'ѱ', 'Ѳ',
+    'ѳ', 'ҋ', 'Ҍ', 'ҍ', 'Ҏ', 'ҏ', 'Ґ', 'ґ', 'Ғ', 'ғ', 'Ҕ', 'ҕ', 'Җ', 'җ', 'Ҙ', 'ҙ', 'Қ', 'қ', 'ҝ', 'ҟ', 'ҡ', 'Ң', 'ң',
+    'Ҥ', 'ҥ', 'ҩ', 'Ҫ', 'ҫ', 'Ҭ', 'ҭ', 'Ұ', 'ұ', 'Ҳ', 'ҳ', 'ҵ', 'ҷ', 'ҹ', 'Һ', 'ҿ', 'Ӂ', 'ӂ', 'Ӄ', 'ӄ', 'ӆ', 'Ӈ', 'ӈ',
+    'ӊ', 'Ӌ', 'ӌ', 'ӎ', 'Ӑ', 'ӑ', 'Ӓ', 'ӓ', 'Ӕ', 'ӕ', 'Ӗ', 'ӗ', 'Ә', 'ә', 'Ӛ', 'ӛ', 'Ӝ', 'ӝ', 'Ӟ', 'ӟ', 'ӡ', 'Ӣ', 'ӣ',
+    'Ӥ', 'ӥ', 'Ӧ', 'ӧ', 'Ө', 'ө', 'Ӫ', 'ӫ', 'Ӭ', 'ӭ', 'Ӯ', 'ӯ', 'Ӱ', 'ӱ', 'Ӳ', 'ӳ', 'Ӵ', 'ӵ', 'Ӷ', 'ӷ', 'Ӹ', 'ӹ', 'Ӻ',
+    'ӽ', 'ӿ', 'Ԁ', 'ԍ', 'ԏ', 'Ԑ', 'ԑ', 'ԓ', 'Ԛ', 'ԟ', 'Ԧ', 'ԧ', 'Ϥ', 'ϥ', 'ϫ', 'ϭ', 'ｩ', 'ｪ', 'ｫ', 'ｬ', 'ｭ', 'ｮ', 'ｯ',
+    'ｰ', 'ｱ', 'ｲ', 'ｳ', 'ｴ', 'ｵ', 'ｶ', 'ｷ', 'ｸ', 'ｹ', 'ｺ', 'ｻ', 'ｼ', 'ｽ', 'ｾ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾂ', 'ﾃ', 'ﾄ', 'ﾅ', 'ﾆ',
+    'ﾇ', 'ﾈ', 'ﾉ', 'ﾊ', 'ﾋ', 'ﾌ', 'ﾍ', 'ﾎ', 'ﾏ', 'ﾐ', 'ﾑ', 'ﾒ', 'ﾓ', 'ﾔ', 'ﾕ', 'ﾖ', 'ﾗ', 'ﾘ', 'ﾙ', 'ﾚ', 'ﾛ', 'ﾜ', 'ﾝ',
+    'ⲁ', 'Ⲃ', 'ⲃ', 'Ⲅ', 'Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Ѐ', 'Ё', 'Ђ', 'Ѓ', 'Є', 'ⲉ', 'Ⲋ', 'ⲋ', 'Ⲍ', 'ⲍ', 'ⲏ', 'ⲑ', 'ⲓ',
+    'ⲕ', 'ⲗ', 'ⲙ', 'ⲛ', 'Ⲝ', 'ⲝ', 'ⲡ', 'ⲧ', 'ⲩ', 'ⲫ', 'ⲭ', 'ⲯ', 'ⳁ', 'Ⳉ', 'ⳉ', 'ⳋ', 'ⳤ', '⳥', '⳦', '⳨', '⳩', '∀', '∁',
+    '∂', '∃', '∄', '∅', '∆', '∇', '∈', '∉', '∊', '∋', '∌', '∍', '∎', '∏', '∐', '∑', '∓', 'ℇ', 'ℏ', '℥', 'Ⅎ', 'ℷ', '⩫',
+    '⨀', '⨅', '⨆', '⨉', '⨍', '⨎', '⨏', '⨐', '⨑', '⨒', '⨓', '⨔', '⨕', '⨖', '⨗', '⨘', '⨙', '⨚', '⨛', '⨜', '⨝', '⨿', '⩪',
+    ];
 
 /// convert a brightness value to a green-ish gradient color
 fn color(brightness: u8) -> Rgb {
@@ -156,7 +176,8 @@ impl Screen {
         for droplet in &mut self.droplets {
             droplet.update(self.width, self.height);
             if let Ok(row) = droplet.row.try_into() {
-                self.columns[droplet.col].set(row, rng.gen_range('A'..='Z'));
+                let ch = CHARS.choose(&mut rng).copied().unwrap_or(' ');
+                self.columns[droplet.col].set(row, ch);
             }
         }
     }
